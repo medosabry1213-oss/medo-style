@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Medo Style | حجز لايف</title>
+    <style>
+        body { background-color: #000; color: #fff; font-family: 'Segoe UI', Tahoma, sans-serif; margin: 0; padding: 0; }
+        .page { display: flex; flex-direction: column; align-items: center; padding: 20px; min-height: 100vh; }
+        .card { background: #1a1a1a; border-radius: 20px; padding: 20px; width: 100%; max-width: 450px; text-align: center; border: 1px solid #333; margin-bottom: 15px; box-sizing: border-box; }
+        
+        /* شكل الأيام الجديد */
+        .schedule-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 15px; }
+        .day-item { background: #222; padding: 10px; border-radius: 12px; border: 1px solid #333; transition: 0.3s; }
+        .day-item.active { border-color: #f97316; background: #2d1a0e; box-shadow: 0 0 10px rgba(249, 115, 22, 0.2); }
+        .day-name { color: #f97316; font-weight: bold; font-size: 14px; display: block; margin-bottom: 3px; }
+        .day-time { font-size: 12px; color: #bbb; }
+        
+        input { width: 100%; padding: 15px; margin: 10px 0; border-radius: 12px; border: 1px solid #444; background: #222; color: #fff; text-align: center; font-size: 16px; box-sizing: border-box; }
+        .btn-confirm { background: #f97316; color: white; padding: 18px; border-radius: 12px; width: 100%; border: none; font-weight: bold; font-size: 20px; cursor: pointer; }
+        .btn-confirm:disabled { background: #444; cursor: not-allowed; opacity: 0.6; }
+        #countDisplay { font-size: 60px; color: #f97316; font-weight: bold; }
+        .status-badge { padding: 8px 20px; border-radius: 20px; font-size: 15px; font-weight: bold; margin-bottom: 10px; display: inline-block; width: 80%; }
+        .open { background: #15803d; box-shadow: 0 0 15px rgba(21, 128, 61, 0.3); } 
+        .closed { background: #b91c1c; box-shadow: 0 0 15px rgba(185, 28, 28, 0.3); }
+        .entry { background: #262626; padding: 15px; margin: 10px 0; border-radius: 12px; border-right: 5px solid #f97316; display: flex; justify-content: space-between; align-items: center; }
+        .timer-box { color: #25d366; font-family: monospace; font-weight: bold; font-size: 14px; background: #000; padding: 4px 8px; border-radius: 6px; border: 1px solid #222; }
+        .entry-name { font-weight: bold; font-size: 16px; }
+    </style>
+</head>
+<body>
+
+    <div class="page">
+        <h1 style="color: #f97316; font-size: 40px; margin-bottom: 5px;">Medo Style</h1>
+        
+        <div class="card">
+            <div id="shopStatus" class="status-badge">جاري الفحص...</div>
+            <div class="schedule-grid">
+                <div class="day-item" id="d-5"><span class="day-name">الجمعة</span><span class="day-time">1م : 1ص</span></div>
+                <div class="day-item" id="d-6"><span class="day-name">السبت</span><span class="day-time">5م : 1ص</span></div>
+                <div class="day-item" id="d-0"><span class="day-name">الأحد</span><span class="day-time">2م : 1ص</span></div>
+                <div class="day-item" id="d-1"><span class="day-name">الاثنين</span><span class="day-time">إجازة</span></div>
+                <div class="day-item" id="d-2"><span class="day-name">الثلاثاء</span><span class="day-time">1م : 1ص</span></div>
+                <div class="day-item" id="d-3"><span class="day-name">الأربعاء</span><span class="day-time">2م : 1ص</span></div>
+                <div class="day-item" id="d-4"><span class="day-name">الخميس</span><span class="day-time">5م : 1ص</span></div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h3 id="msg">احجز دورك الآن</h3>
+            <input type="text" id="nameInp" placeholder="اسمك الثنائي">
+            <input type="tel" id="phoneInp" placeholder="رقم موبايلك">
+            <button id="mainBtn" class="btn-confirm" onclick="addNewBooking()">تأكيد الحجز الآن ✅</button>
+        </div>
+
+        <div class="card">
+            <p style="color: #888; margin:0">إجمالي الحجوزات</p>
+            <span id="countDisplay">0</span>
+            <hr style="border: 0; border-top: 1px solid #333; margin: 15px 0;">
+            <div id="listArea"></div>
+        </div>
+    </div>
+
+    <script>
+        const SHEETDB_URL = "https://sheetdb.io/api/v1/tujn5mc3tw0po"; 
+
+        function timeAgo(dateString) {
+            const start = new Date(dateString);
+            const now = new Date();
+            const diff = Math.floor((now - start) / 1000);
+            if (isNaN(diff) || diff < 0) return "00:00";
+            const mins = Math.floor(diff / 60);
+            const secs = diff % 60;
+            return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+        }
+
+        function checkWorkTime() {
+            const now = new Date();
+            const day = now.getDay();
+            const hour = now.getHours();
+
+            // تمييز اليوم الحالي
+            document.querySelectorAll('.day-item').forEach(d => d.classList.remove('active'));
+            const todayItem = document.getElementById('d-' + day);
+            if(todayItem) todayItem.classList.add('active');
+
+            let currentH = (hour < 5) ? hour + 24 : hour; 
+            const schedule = { 5:[13,25], 6:[17,25], 0:[14,25], 1:[0,0], 2:[13,25], 3:[14,25], 4:[17,25] };
+            const today = schedule[day];
+            const isOpen = today && currentH >= today[0] && currentH < today[1];
+            
+            const btn = document.getElementById('mainBtn');
+            const status = document.getElementById('shopStatus');
+            status.innerText = isOpen ? "المحل مفتوح الآن 🟢" : "المحل مغلق حالياً 🔴";
+            status.className = "status-badge " + (isOpen ? "open" : "closed");
+            btn.disabled = !isOpen;
+        }
+
+        async function refresh() {
+            checkWorkTime();
+            try {
+                const res = await fetch(SHEETDB_URL);
+                const data = await res.json();
+                document.getElementById('countDisplay').innerText = data.length || 0;
+                const area = document.getElementById('listArea');
+                area.innerHTML = data.slice(-10).map(i => `
+                    <div class="entry">
+                        <div style="text-align:right">
+                            <div class="entry-name">${i.Name}</div>
+                            <div style="font-size:10px; color:#666;">مؤكد ✅</div>
+                        </div>
+                        <div class="timer-box" data-time="${i.Date}">${timeAgo(i.Date)}</div>
+                    </div>
+                `).reverse().join('');
+            } catch (e) {}
+        }
+
+        setInterval(() => {
+            document.querySelectorAll('.timer-box').forEach(box => {
+                box.innerText = timeAgo(box.getAttribute('data-time'));
+            });
+        }, 1000);
+
+        async function addNewBooking() {
+            const n = document.getElementById('nameInp').value;
+            const p = document.getElementById('phoneInp').value;
+            if (!n || !p) return alert("اكتب بياناتك");
+            const btn = document.getElementById('mainBtn');
+            btn.innerText = "جاري الحجز...";
+            btn.disabled = true;
+            try {
+                const nowISO = new Date().toISOString(); 
+                await fetch(SHEETDB_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ "data": [{ "Name": n, "Phone": p, "Date": nowISO }] })
+                });
+                alert("تم الحجز! التايمر بدأ يعد");
+                document.getElementById('nameInp').value = "";
+                document.getElementById('phoneInp').value = "";
+                refresh();
+            } catch (e) { alert("خطأ في الشبكة"); }
+            finally { btn.innerText = "تأكيد الحجز الآن ✅"; checkWorkTime(); }
+        }
+
+        setInterval(refresh, 10000);
+        window.onload = refresh;
+    </script>
+</body>
+</html>
