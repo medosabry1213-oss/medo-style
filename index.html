@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
@@ -107,7 +108,7 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js";
         import { getAnalytics } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-analytics.js";
-        import { getFirestore, collection, addDoc, getDocs } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
+        import { getFirestore, collection, addDoc, getDocs, deleteDoc, doc } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyC0u38UFwPh9Xep8wi-lSu1fDfl2I943U8",
@@ -124,7 +125,9 @@
         const db = getFirestore(app);
 
         window.products = [];
-        window.cartItems = [];
+        // استرجاع السلة المحفوظة من localStorage إن وجدت
+        window.cartItems = JSON.parse(localStorage.getItem('cartItems')) || [];
+        updateCartCount();
 
         let pressTimer;
         const storeTitle = document.getElementById('store-title');
@@ -136,11 +139,15 @@
         storeTitle.addEventListener('touchend', cancelPress);
         storeTitle.addEventListener('touchcancel', cancelPress);
 
+        let isAdminLoggedIn = false;
+
         function startPress() {
             pressTimer = setTimeout(() => {
                 const password = prompt("برجاء إدخال كلمة المرور:");
                 if (password === "8888") {
+                    isAdminLoggedIn = true;
                     document.getElementById('admin-panel').style.display = 'block';
+                    window.renderProducts();
                 } else {
                     alert("كلمة المرور غير صحيحة!");
                 }
@@ -160,16 +167,33 @@
                 return;
             }
 
-            window.products.forEach((product, index) => {
+            window.products.forEach((product) => {
+                let adminDeleteBtn = isAdminLoggedIn ? `<button onclick="deleteProductFromFirestore('${product.id}')" style="background: red; color: white; border: none; padding: 5px; margin-top: 5px; cursor: pointer; width: 100%;">حذف</button>` : '';
+
                 container.innerHTML += `
                     <div class="product-card">
                         <img src="${product.image}" alt="${product.name}" onclick="openProductDetail('${product.name}', ${product.price}, '${product.image}', '${encodeURIComponent(product.details || 'لا توجد تفاصيل متاحة.')}')" style="cursor: pointer;">
                         <h3>${product.name}</h3>
                         <p class="price">${product.price} جنيه</p>
                         <button onclick="addToCart('${product.name}', ${product.price})">إضافة للسلة</button>
+                        ${adminDeleteBtn}
                     </div>
                 `;
             });
+        }
+
+        window.deleteProductFromFirestore = async function(id) {
+            if (confirm("هل أنت متأكد من حذف هذا المنتج؟")) {
+                try {
+                    await deleteDoc(doc(db, "products", id));
+                    window.products = window.products.filter(p => p.id !== id);
+                    window.renderProducts();
+                    alert("تم حذف المنتج بنجاح!");
+                } catch (error) {
+                    console.error("خطأ في الحذف: ", error);
+                    alert("حدث خطأ أثناء الحذف.");
+                }
+            }
         }
 
         window.openProductDetail = function(name, price, image, details) {
@@ -188,7 +212,6 @@
             document.getElementById('product-detail-modal').style.display = 'none';
         }
 
-        // تعديل دالة إضافة المنتج لترسل البيانات مباشرة إلى Firestore
         window.addNewProduct = async function() {
             let name = document.getElementById('new-name').value;
             let price = Number(document.getElementById('new-price').value);
@@ -206,7 +229,8 @@
                 let newProd = { name: name, price: price, details: details, image: imageSrc, createdAt: new Date() };
                 
                 try {
-                    await addDoc(collection(db, "products"), newProd);
+                    const docRef = await addDoc(collection(db, "products"), newProd);
+                    newProd.id = docRef.id;
                     window.products.push(newProd);
                     window.renderProducts();
 
@@ -225,6 +249,7 @@
 
         window.addToCart = function(name, price) {
             window.cartItems.push({ name: name, price: price });
+            localStorage.setItem('cartItems', JSON.stringify(window.cartItems));
             updateCartCount();
             alert('تمت إضافة ' + name + ' إلى السلة!');
         }
@@ -243,12 +268,24 @@
             } else {
                 window.cartItems.forEach((item, index) => {
                     total += item.price;
-                    listContainer.innerHTML += `<p>${index + 1}. ${item.name} - ${item.price} جنيه</p>`;
+                    listContainer.innerHTML += `
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+                            <span>${index + 1}. ${item.name} - ${item.price} جنيه</span>
+                            <button onclick="removeFromCart(${index})" style="background: red; color: white; border: none; padding: 2px 5px; cursor: pointer;">حذف</button>
+                        </div>
+                    `;
                 });
             }
 
             document.getElementById('total-amount').innerText = total;
             document.getElementById('cart-modal').style.display = 'flex';
+        }
+
+        window.removeFromCart = function(index) {
+            window.cartItems.splice(index, 1);
+            localStorage.setItem('cartItems', JSON.stringify(window.cartItems));
+            updateCartCount();
+            window.openCartModal();
         }
 
         window.closeCartModal = function() {
@@ -274,13 +311,14 @@
             window.open(`https://wa.me/${phone}?text=${message}`, '_blank');
         }
 
-        // دالة جلب المنتجات تلقائياً من قاعدة البيانات عند فتح الصفحة
         async function loadProductsFromFirestore() {
             try {
                 const querySnapshot = await getDocs(collection(db, "products"));
                 window.products = [];
                 querySnapshot.forEach((doc) => {
-                    window.products.push(doc.data());
+                    let prodData = doc.data();
+                    prodData.id = doc.id;
+                    window.products.push(prodData);
                 });
                 window.renderProducts();
             } catch (e) {
@@ -292,3 +330,5 @@
     </script>
 </body>
 </html>
+
+```
