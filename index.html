@@ -52,6 +52,18 @@
             line-height: 1.6;
             text-align: right;
         }
+        .checkout-inputs {
+            margin: 15px 0;
+            text-align: right;
+        }
+        .checkout-inputs input {
+            width: 100%;
+            padding: 8px;
+            margin-bottom: 8px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            box-sizing: border-box;
+        }
     </style>
 </head>
 <body>
@@ -64,7 +76,7 @@
     </header>
 
     <section id="admin-panel" class="admin-panel" style="display: none;">
-        <h3>➕ إضافة منتج جديد للمتجر</h3>
+        <h3>➕ إدارة وحذف المنتجات من المتجر</h3>
         <input type="text" id="new-name" placeholder="اسم المنتج">
         <input type="number" id="new-price" placeholder="السعر بالجنيه">
         <textarea id="new-details" placeholder="تفاصيل المنتج (اكتب كل ما يخص المنتج هنا)..." rows="3" style="width: 100%; padding: 8px; margin-bottom: 10px; border-radius: 5px; border: 1px solid #ccc;"></textarea>
@@ -88,7 +100,14 @@
             <h2>سلة المشتريات</h2>
             <div id="cart-items-list"></div>
             <p class="total-price">الإجمالي الكلي: <span id="total-amount">0</span> جنيه</p>
-            <button class="whatsapp-btn" onclick="checkoutWhatsApp()">إتمام الطلب عبر الواتساب 📱</button>
+            
+            <div class="checkout-inputs">
+                <input type="text" id="customer-name" placeholder="ادخل اسمك">
+                <input type="text" id="customer-phone" placeholder="رقم التواصل">
+                <input type="text" id="customer-location" placeholder="مكانك / العنوان">
+            </div>
+
+            <button class="whatsapp-btn" onclick="checkoutWhatsApp()">تأكيد الطلب 📱</button>
         </div>
     </div>
 
@@ -125,7 +144,6 @@
         const db = getFirestore(app);
 
         window.products = [];
-        // استرجاع السلة المحفوظة من localStorage إن وجدت
         window.cartItems = JSON.parse(localStorage.getItem('cartItems')) || [];
         updateCartCount();
 
@@ -139,16 +157,13 @@
         storeTitle.addEventListener('touchend', cancelPress);
         storeTitle.addEventListener('touchcancel', cancelPress);
 
-        let isAdminLoggedIn = false;
-
         function startPress() {
             pressTimer = setTimeout(() => {
                 const password = prompt("برجاء إدخال كلمة المرور:");
                 if (password === "8888") {
-                    isAdminLoggedIn = true;
                     document.getElementById('admin-panel').style.display = 'block';
-                    window.renderProducts();
-                } else {
+                    window.renderProducts(); // إعادة رسم المنتجات لإظهار زرار الحذف للمدير
+                } else if(password !== null) {
                     alert("كلمة المرور غير صحيحة!");
                 }
             }, 5000);
@@ -167,8 +182,10 @@
                 return;
             }
 
-            window.products.forEach((product) => {
-                let adminDeleteBtn = isAdminLoggedIn ? `<button onclick="deleteProductFromFirestore('${product.id}')" style="background: red; color: white; border: none; padding: 5px; margin-top: 5px; cursor: pointer; width: 100%;">حذف</button>` : '';
+            let isAdminOpen = document.getElementById('admin-panel').style.display === 'block';
+
+            window.products.forEach((product, index) => {
+                let deleteButtonHtml = isAdminOpen ? `<button onclick="deleteProduct('${product.id}')" style="background: red; color: white; border: none; padding: 5px 10px; border-radius: 5px; cursor: pointer; margin-top: 5px;">حذف المنتج</button>` : '';
 
                 container.innerHTML += `
                     <div class="product-card">
@@ -176,24 +193,10 @@
                         <h3>${product.name}</h3>
                         <p class="price">${product.price} جنيه</p>
                         <button onclick="addToCart('${product.name}', ${product.price})">إضافة للسلة</button>
-                        ${adminDeleteBtn}
+                        ${deleteButtonHtml}
                     </div>
                 `;
             });
-        }
-
-        window.deleteProductFromFirestore = async function(id) {
-            if (confirm("هل أنت متأكد من حذف هذا المنتج؟")) {
-                try {
-                    await deleteDoc(doc(db, "products", id));
-                    window.products = window.products.filter(p => p.id !== id);
-                    window.renderProducts();
-                    alert("تم حذف المنتج بنجاح!");
-                } catch (error) {
-                    console.error("خطأ في الحذف: ", error);
-                    alert("حدث خطأ أثناء الحذف.");
-                }
-            }
         }
 
         window.openProductDetail = function(name, price, image, details) {
@@ -247,15 +250,35 @@
             reader.readAsDataURL(imageInput.files[0]);
         }
 
+        window.deleteProduct = async function(id) {
+            if (!confirm("هل أنت متأكد من حذف هذا المنتج؟")) return;
+            try {
+                await deleteDoc(doc(db, "products", id));
+                window.products = window.products.filter(p => p.id !== id);
+                window.renderProducts();
+                alert("تم حذف المنتج بنجاح!");
+            } catch (error) {
+                console.error("خطأ أثناء الحذف: ", error);
+                alert("حدث خطأ أثناء حذف المنتج.");
+            }
+        }
+
         window.addToCart = function(name, price) {
-            window.cartItems.push({ name: name, price: price });
+            let existingItem = window.cartItems.find(item => item.name === name);
+            if (existingItem) {
+                existingItem.quantity += 1;
+            } else {
+                window.cartItems.push({ name: name, price: price, quantity: 1 });
+            }
             localStorage.setItem('cartItems', JSON.stringify(window.cartItems));
             updateCartCount();
             alert('تمت إضافة ' + name + ' إلى السلة!');
         }
 
         function updateCartCount() {
-            document.getElementById('cart-count').innerText = window.cartItems.length;
+            let totalQty = 0;
+            window.cartItems.forEach(item => totalQty += item.quantity);
+            document.getElementById('cart-count').innerText = totalQty;
         }
 
         window.openCartModal = function() {
@@ -267,11 +290,11 @@
                 listContainer.innerHTML = '<p>السلة فارغة حالياً.</p>';
             } else {
                 window.cartItems.forEach((item, index) => {
-                    total += item.price;
+                    total += (item.price * item.quantity);
                     listContainer.innerHTML += `
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
-                            <span>${index + 1}. ${item.name} - ${item.price} جنيه</span>
-                            <button onclick="removeFromCart(${index})" style="background: red; color: white; border: none; padding: 2px 5px; cursor: pointer;">حذف</button>
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; border-bottom: 1px solid #eee; padding-bottom: 5px;">
+                            <span>${index + 1}. ${item.name} - ${item.price} جنيه (العدد: ${item.quantity})</span>
+                            <button onclick="removeFromCart(${index})" style="background: red; color: white; border: none; padding: 2px 6px; border-radius: 3px; cursor: pointer;">حذف</button>
                         </div>
                     `;
                 });
@@ -298,13 +321,22 @@
                 return;
             }
 
+            let customerName = document.getElementById('customer-name').value.trim();
+            let customerPhone = document.getElementById('customer-phone').value.trim();
+            let customerLocation = document.getElementById('customer-location').value.trim();
+
+            if (!customerName || !customerPhone || !customerLocation) {
+                alert('من فضلك املأ جميع بيانات التوصيل (الاسم، رقم التواصل، المكان)!');
+                return;
+            }
+
             let phone = "+201097281524"; 
-            let message = "مرحباً، أريد طلب المنتجات التالية:%0A";
+            let message = `بيانات العميل:%0Aالاسم: ${customerName}%0Aرقم التواصل: ${customerPhone}%0Aالمكان: ${customerLocation}%0A%0Aالطلبات:%0A`;
             let total = 0;
 
             window.cartItems.forEach((item, index) => {
-                message += `${index + 1}. ${item.name} - ${item.price} جنيه%0A`;
-                total += item.price;
+                message += `${index + 1}. ${item.name} - ${item.price} جنيه (العدد: ${item.quantity})%0A`;
+                total += (item.price * item.quantity);
             });
 
             message += `%0Aالإجمالي الكلي: ${total} جنيه`;
@@ -330,5 +362,3 @@
     </script>
 </body>
 </html>
-
-```
