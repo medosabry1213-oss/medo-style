@@ -63,6 +63,17 @@
             border-radius: 5px;
             box-sizing: border-box;
         }
+        .product-number {
+            font-size: 14px;
+            color: #666;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        .out-of-stock-badge {
+            color: red;
+            font-weight: bold;
+            margin: 5px 0;
+        }
     </style>
 </head>
 <body>
@@ -75,7 +86,7 @@
     </header>
 
     <section id="admin-panel" class="admin-panel" style="display: none;">
-        <h3>➕ إدارة وحذف المنتجات من المتجر</h3>
+        <h3>➕ إدارة وحذف وتعديل حالة المنتجات</h3>
         <input type="text" id="new-name" placeholder="اسم المنتج">
         <input type="number" id="new-price" placeholder="السعر بالجنيه">
         <textarea id="new-details" placeholder="تفاصيل المنتج (اكتب كل ما يخص المنتج هنا)..." rows="3" style="width: 100%; padding: 8px; margin-bottom: 10px; border-radius: 5px; border: 1px solid #ccc;"></textarea>
@@ -126,7 +137,7 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js";
         import { getAnalytics } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-analytics.js";
-        import { getFirestore, collection, addDoc, getDocs, deleteDoc, doc } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
+        import { getFirestore, collection, addDoc, getDocs, deleteDoc, doc, updateDoc } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyC0u38UFwPh9Xep8wi-lSu1fDfl2I943U8",
@@ -161,7 +172,7 @@
                 const password = prompt("برجاء إدخال كلمة المرور:");
                 if (password === "8888") {
                     document.getElementById('admin-panel').style.display = 'block';
-                    window.renderProducts(); // إعادة رسم المنتجات لإظهار زرار الحذف للمدير
+                    window.renderProducts();
                 } else if(password !== null) {
                     alert("كلمة المرور غير صحيحة!");
                 }
@@ -184,28 +195,51 @@
             let isAdminOpen = document.getElementById('admin-panel').style.display === 'block';
 
             window.products.forEach((product, index) => {
-                let deleteButtonHtml = isAdminOpen ? `<button onclick="deleteProduct('${product.id}')" style="background: red; color: white; border: none; padding: 5px 10px; border-radius: 5px; cursor: pointer; margin-top: 5px;">حذف المنتج</button>` : '';
+                let productNum = index + 1;
+                let isOut = product.outOfStock ? true : false;
+                
+                let adminControlsHtml = '';
+                if (isAdminOpen) {
+                    let stockButtonText = isOut ? "إعادة توفر المنتج" : "غير متوفر حاليا";
+                    let stockButtonColor = isOut ? "green" : "orange";
+                    
+                    adminControlsHtml = `
+                        <div style="margin-top: 8px; display: flex; flex-direction: column; gap: 5px;">
+                            <button onclick="toggleStock('${product.id}', ${!isOut})" style="background: ${stockButtonColor}; color: white; border: none; padding: 5px 10px; border-radius: 5px; cursor: pointer;">${stockButtonText}</button>
+                            <button onclick="deleteProduct('${product.id}')" style="background: red; color: white; border: none; padding: 5px 10px; border-radius: 5px; cursor: pointer;">حذف المنتج</button>
+                        </div>
+                    `;
+                }
+
+                let stockStatusHtml = isOut ? `<p class="out-of-stock-badge">غير متوفر حالياً</p>` : `<button onclick="addToCart('${product.id}', '${product.name}', ${product.price}, ${productNum})">إضافة للسلة</button>`;
 
                 container.innerHTML += `
                     <div class="product-card">
-                        <img src="${product.image}" alt="${product.name}" onclick="openProductDetail('${product.name}', ${product.price}, '${product.image}', '${encodeURIComponent(product.details || 'لا توجد تفاصيل متاحة.')}')" style="cursor: pointer;">
+                        <div class="product-number">رقم المنتج: ${productNum}</div>
+                        <img src="${product.image}" alt="${product.name}" onclick="openProductDetail('${product.id}', '${product.name}', ${product.price}, '${product.image}', '${encodeURIComponent(product.details || 'لا توجد تفاصيل متاحة.')}', ${productNum})" style="cursor: pointer; ${isOut ? 'opacity: 0.5;' : ''}">
                         <h3>${product.name}</h3>
                         <p class="price">${product.price} جنيه</p>
-                        <button onclick="addToCart('${product.name}', ${product.price})">إضافة للسلة</button>
-                        ${deleteButtonHtml}
+                        ${stockStatusHtml}
+                        ${adminControlsHtml}
                     </div>
                 `;
             });
         }
 
-        window.openProductDetail = function(name, price, image, details) {
+        window.openProductDetail = function(id, name, price, image, details, productNum) {
+            let product = window.products.find(p => p.id === id);
+            if (product && product.outOfStock) {
+                alert("عذراً، هذا المنتج غير متوفر حالياً.");
+                return;
+            }
+
             document.getElementById('detail-image').src = image;
             document.getElementById('detail-name').innerText = name;
             document.getElementById('detail-price').innerText = price + " جنيه";
             document.getElementById('detail-description').innerText = decodeURIComponent(details);
             
             const cartBtn = document.getElementById('add-to-cart-detail-btn');
-            cartBtn.onclick = function() { addToCart(name, price); };
+            cartBtn.onclick = function() { addToCart(id, name, price, productNum); };
 
             document.getElementById('product-detail-modal').style.display = 'flex';
         }
@@ -215,7 +249,7 @@
         }
 
         window.addNewProduct = async function() {
-            let name = document.getElementById('new-name').value;
+            let name = document.getElementById('new-name').value.trim();
             let price = Number(document.getElementById('new-price').value);
             let details = document.getElementById('new-details').value;
             let imageInput = document.getElementById('new-image');
@@ -228,7 +262,7 @@
             let reader = new FileReader();
             reader.onload = async function(e) {
                 let imageSrc = e.target.result;
-                let newProd = { name: name, price: price, details: details, image: imageSrc, createdAt: new Date() };
+                let newProd = { name: name, price: price, details: details, image: imageSrc, outOfStock: false, createdAt: new Date() };
                 
                 try {
                     const docRef = await addDoc(collection(db, "products"), newProd);
@@ -262,12 +296,34 @@
             }
         }
 
-        window.addToCart = function(name, price) {
-            let existingItem = window.cartItems.find(item => item.name === name);
+        window.toggleStock = async function(id, status) {
+            try {
+                const productRef = doc(db, "products", id);
+                await updateDoc(productRef, { outOfStock: status });
+                let product = window.products.find(p => p.id === id);
+                if (product) {
+                    product.outOfStock = status;
+                }
+                window.renderProducts();
+                alert(status ? "تم تحديث المنتج إلى: غير متوفر حالياً" : "تم إعادة توفر المنتج بنجاح!");
+            } catch (error) {
+                console.error("خطأ في تحديث حالة المنتج: ", error);
+                alert("حدث خطأ أثناء تحديث حالة المنتج.");
+            }
+        }
+
+        window.addToCart = function(id, name, price, productNum) {
+            let product = window.products.find(p => p.id === id);
+            if (product && product.outOfStock) {
+                alert("عذراً، هذا المنتج غير متوفر حالياً ولا يمكن إضافته للسلة.");
+                return;
+            }
+
+            let existingItem = window.cartItems.find(item => item.id === id);
             if (existingItem) {
                 existingItem.quantity += 1;
             } else {
-                window.cartItems.push({ name: name, price: price, quantity: 1 });
+                window.cartItems.push({ id: id, name: name, price: price, productNum: productNum, quantity: 1 });
             }
             localStorage.setItem('cartItems', JSON.stringify(window.cartItems));
             updateCartCount();
@@ -292,7 +348,7 @@
                     total += (item.price * item.quantity);
                     listContainer.innerHTML += `
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; border-bottom: 1px solid #eee; padding-bottom: 5px;">
-                            <span>${index + 1}. ${item.name} - ${item.price} جنيه (العدد: ${item.quantity})</span>
+                            <span>${index + 1}. ${item.name} (المنتج رقم: ${item.productNum}) - ${item.price} جنيه (العدد: ${item.quantity})</span>
                             <button onclick="removeFromCart(${index})" style="background: red; color: white; border: none; padding: 2px 6px; border-radius: 3px; cursor: pointer;">حذف</button>
                         </div>
                     `;
@@ -334,7 +390,7 @@
             let total = 0;
 
             window.cartItems.forEach((item, index) => {
-                message += `${index + 1}. ${item.name} - ${item.price} جنيه (العدد: ${item.quantity})%0A`;
+                message += `${index + 1}. ${item.name} (المنتج رقم: ${item.productNum}) - ${item.price} جنيه (العدد: ${item.quantity})%0A`;
                 total += (item.price * item.quantity);
             });
 
