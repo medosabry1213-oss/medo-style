@@ -422,7 +422,6 @@
             to { transform: translateY(0); }
         }
 
-        /* زر الإغلاق الأنيق و البارز */
         .close-btn {
             position: absolute;
             top: 15px;
@@ -508,7 +507,6 @@
             box-shadow: 0 0 25px rgba(37, 211, 102, 0.6);
         }
 
-        /* كارت المنتج المنسق داخل السلة */
         .cart-item-card {
             display: flex;
             align-items: center;
@@ -545,7 +543,6 @@
             font-weight: 600;
         }
 
-        /* نافذة العرض الكامل للصورة */
         .fullscreen-modal {
             display: none;
             position: fixed;
@@ -590,7 +587,6 @@
             box-shadow: 0 4px 20px rgba(0,0,0,0.6);
         }
 
-        /* فوتر ختام الصفحة */
         footer {
             margin-top: 40px;
             padding: 20px 10px;
@@ -659,7 +655,6 @@
     </section>
 
     <main>
-        <!-- أزرار التصفية الشفافة -->
         <div class="category-filter">
             <button class="category-btn active" onclick="filterCategory('all', this)">الكل 🛍️</button>
             <button class="category-btn" onclick="filterCategory('men', this)">رجالي 👨</button>
@@ -795,10 +790,12 @@
 
             let isAdminOpen = document.getElementById('admin-panel').style.display === 'block';
 
-            filteredProducts.forEach((product, index) => {
-                let productNum = index + 1;
+            filteredProducts.forEach((product) => {
+                let realIndex = window.products.findIndex(p => p.id === product.id);
+                let productNum = realIndex !== -1 ? (realIndex + 1) : 1;
+
                 let isOut = product.outOfStock ? true : false;
-                let categoryLabel = product.category === 'women' ? 'حريمي 👩' : 'رجالي 👨';
+                let categoryLabel = product.category === 'women' ? 'حريمي' : 'رجالي';
                 let mainImage = (product.images && product.images.length > 0) ? product.images[0] : (product.image || '');
                 
                 let adminControlsHtml = '';
@@ -978,20 +975,26 @@
                 return;
             }
 
+            let realIndex = window.products.findIndex(p => p.id === id);
+            let pNumber = (realIndex !== -1) ? (realIndex + 1) : (productNum || 1);
+            let pCategory = category || (product ? product.category : 'men');
+
             let mainImage = (product && product.images && product.images.length > 0) ? product.images[0] : (product ? product.image : '');
 
             let existingItem = window.cartItems.find(item => item.id === id);
             if (existingItem) {
                 existingItem.quantity += 1;
+                existingItem.productNum = pNumber;
+                existingItem.category = pCategory;
             } else {
                 window.cartItems.push({ 
                     id: id, 
                     name: name, 
                     price: price, 
-                    productNum: productNum, 
+                    productNum: pNumber, 
                     quantity: 1, 
                     image: mainImage,
-                    category: category || 'men'
+                    category: pCategory
                 });
             }
             localStorage.setItem('cartItems', JSON.stringify(window.cartItems));
@@ -1015,13 +1018,20 @@
             } else {
                 window.cartItems.forEach((item, index) => {
                     total += (item.price * item.quantity);
-                    let categoryLabel = item.category === 'women' ? 'حريمي 👩' : 'رجالي 👨';
+                    let categoryLabel = item.category === 'women' ? 'حريمي' : 'رجالي';
+                    
+                    let pNum = item.productNum;
+                    if (!pNum) {
+                        let realIndex = window.products.findIndex(p => p.id === item.id);
+                        pNum = realIndex !== -1 ? (realIndex + 1) : (index + 1);
+                    }
+
                     listContainer.innerHTML += `
                         <div class="cart-item-card">
                             <img src="${item.image}" class="cart-item-img" onclick="openFullscreen('${item.image}')" alt="${item.name}">
                             <div class="cart-item-details">
                                 <span class="cart-category-badge">${categoryLabel}</span><br>
-                                <strong>${item.name}</strong> (#${item.productNum})<br>
+                                <strong>${item.name}</strong> (#${pNum})<br>
                                 <span style="color: rgba(255,255,255,0.7);">${item.price} ج × ${item.quantity}</span>
                             </div>
                             <button class="glass-btn glass-btn-red" onclick="removeFromCart(${index})" style="padding: 6px 10px; width: auto; font-size: 0.75rem;">حذف</button>
@@ -1045,6 +1055,7 @@
             document.getElementById('cart-modal').style.display = 'none';
         }
 
+        // دالة تحضير وإرسال رسالة الواتساب بدون أي تشفير خاطئ
         window.checkoutWhatsApp = function() {
             if (window.cartItems.length === 0) {
                 alert('السلة فارغة!');
@@ -1061,17 +1072,37 @@
             }
 
             let phone = "+201097281524"; 
-            let message = `بيانات العميل:%0Aالاسم: ${customerName}%0Aرقم التواصل: ${customerPhone}%0Aالمكان: ${customerLocation}%0A%0Aالطلبات:%0A`;
+            
+            // بناء النص بأسلوب واصل بدون رموز تسبب مشكلة التشفير
+            let rawText = `بيانات العميل:\n- الاسم: ${customerName}\n- رقم العميل: ${customerPhone}\n- العنوان: ${customerLocation}\n\nتفاصيل الطلبات:\n\n`;
             let total = 0;
 
             window.cartItems.forEach((item, index) => {
-                let categoryLabel = item.category === 'women' ? 'حريمي' : 'رجالي';
-                message += `${index + 1}. ${item.name} (#${item.productNum}) - [${categoryLabel}] - ${item.price} ج (العدد: ${item.quantity})%0A`;
+                let originalProduct = window.products.find(p => p.id === item.id);
+                let realIndex = window.products.findIndex(p => p.id === item.id);
+                
+                let pNum = realIndex !== -1 ? (realIndex + 1) : (item.productNum || (index + 1));
+                let catType = originalProduct ? originalProduct.category : (item.category || 'men');
+                let categoryLabel = catType === 'women' ? 'حريمي' : 'رجالي';
+
+                rawText += `اسم المنتج: ${item.name}\n`;
+                rawText += `- رقم المنتج: #${pNum}\n`;
+                rawText += `- القسم: ${categoryLabel}\n`;
+                rawText += `- سعر المنتج: ${item.price} ج (العدد: ${item.quantity})\n----------------------------------\n`;
+                
                 total += (item.price * item.quantity);
             });
 
-            message += `%0Aالإجمالي الكلي: ${total} جنيه`;
-            window.open(`https://wa.me/${phone}?text=${message}`, '_blank');
+            rawText += `\nالإجمالي الكلي: ${total} جنيه`;
+
+            // تفريغ السلة لتنظيفها من الطلبات القديمة
+            localStorage.removeItem('cartItems');
+            window.cartItems = [];
+            updateCartCount();
+
+            // تشفير النص الآمن 100%
+            let encodedText = encodeURIComponent(rawText);
+            window.open(`https://wa.me/${phone}?text=${encodedText}`, '_blank');
         }
 
         async function loadProductsFromFirestore() {
