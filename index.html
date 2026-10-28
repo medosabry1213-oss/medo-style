@@ -6,7 +6,7 @@
     <title>✬ 🦅𝒔𝒐𝒌𝒂𝒓🦅 ✬</title>
     <link rel="stylesheet" href="style.css">
     <style>
-        /* تنسيق النافذة المنسدلة للتفاصيل */
+        /* تنسيق النافذة المنسدلة للتفاصيل والسلة */
         .modal {
             display: none;
             position: fixed;
@@ -74,6 +74,37 @@
             font-weight: bold;
             margin: 5px 0;
         }
+
+        /* تنسيقات أزرار تصفية الأقسام */
+        .category-filter {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin: 20px 0;
+        }
+        .category-btn {
+            padding: 10px 20px;
+            border: 2px solid #007bff;
+            background-color: #fff;
+            color: #007bff;
+            border-radius: 20px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        .category-btn.active, .category-btn:hover {
+            background-color: #007bff;
+            color: #fff;
+        }
+        .product-category-badge {
+            display: inline-block;
+            background-color: #e9ecef;
+            color: #495057;
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            margin-bottom: 5px;
+        }
     </style>
 </head>
 <body>
@@ -85,10 +116,18 @@
         </div>
     </header>
 
+    <!-- لوحة التحكم للإدارة -->
     <section id="admin-panel" class="admin-panel" style="display: none;">
         <h3>➕ إدارة وحذف وتعديل حالة المنتجات</h3>
         <input type="text" id="new-name" placeholder="اسم المنتج">
         <input type="number" id="new-price" placeholder="السعر بالجنيه">
+        
+        <!-- اختيار القسم -->
+        <select id="new-category" style="width: 100%; padding: 8px; margin-bottom: 10px; border-radius: 5px; border: 1px solid #ccc;">
+            <option value="men">قسم رجالي 👨</option>
+            <option value="women">قسم حريمي 👩</option>
+        </select>
+
         <textarea id="new-details" placeholder="تفاصيل المنتج (اكتب كل ما يخص المنتج هنا)..." rows="3" style="width: 100%; padding: 8px; margin-bottom: 10px; border-radius: 5px; border: 1px solid #ccc;"></textarea>
         
         <div class="file-upload-wrapper">
@@ -100,10 +139,18 @@
     </section>
 
     <main>
+        <!-- أزرار التصفية حسب الأقسام -->
+        <div class="category-filter">
+            <button class="category-btn active" onclick="filterCategory('all', this)">الكل</button>
+            <button class="category-btn" onclick="filterCategory('men', this)">قسم رجالي 👨</button>
+            <button class="category-btn" onclick="filterCategory('women', this)">قسم حريمي 👩</button>
+        </div>
+
         <h2>قائمة المنتجات المتاحة</h2>
         <div class="products-grid" id="products-container"></div>
     </main>
 
+    <!-- نافذة السلة -->
     <div id="cart-modal" class="modal">
         <div class="modal-content">
             <span class="close-btn" onclick="closeCartModal()">&times;</span>
@@ -154,6 +201,7 @@
         const db = getFirestore(app);
 
         window.products = [];
+        window.currentCategoryFilter = 'all';
         window.cartItems = JSON.parse(localStorage.getItem('cartItems')) || [];
         updateCartCount();
 
@@ -183,20 +231,38 @@
             clearTimeout(pressTimer);
         }
 
+        // تصفية المنتجات حسب القسم
+        window.filterCategory = function(category, element) {
+            window.currentCategoryFilter = category;
+            
+            // تحديث زرار الأقسام النشط
+            document.querySelectorAll('.category-btn').forEach(btn => btn.classList.remove('active'));
+            if(element) element.classList.add('active');
+
+            window.renderProducts();
+        };
+
         window.renderProducts = function() {
             let container = document.getElementById('products-container');
             container.innerHTML = '';
             
-            if (window.products.length === 0) {
-                container.innerHTML = '<p style="text-align: center; width: 100%;">لا توجد منتجات حالياً. أضف منتجات جديدة من لوحة التحكم.</p>';
+            // فلترة المنتجات حسب القسم المحدد
+            let filteredProducts = window.products.filter(p => {
+                if (window.currentCategoryFilter === 'all') return true;
+                return p.category === window.currentCategoryFilter;
+            });
+
+            if (filteredProducts.length === 0) {
+                container.innerHTML = '<p style="text-align: center; width: 100%;">لا توجد منتجات في هذا القسم حالياً.</p>';
                 return;
             }
 
             let isAdminOpen = document.getElementById('admin-panel').style.display === 'block';
 
-            window.products.forEach((product, index) => {
+            filteredProducts.forEach((product, index) => {
                 let productNum = index + 1;
                 let isOut = product.outOfStock ? true : false;
+                let categoryLabel = product.category === 'women' ? 'حريمي 👩' : 'رجالي 👨';
                 
                 let adminControlsHtml = '';
                 if (isAdminOpen) {
@@ -216,6 +282,7 @@
                 container.innerHTML += `
                     <div class="product-card">
                         <div class="product-number">رقم المنتج: ${productNum}</div>
+                        <span class="product-category-badge">${categoryLabel}</span>
                         <img src="${product.image}" alt="${product.name}" onclick="openProductDetail('${product.id}', '${product.name}', ${product.price}, '${product.image}', '${encodeURIComponent(product.details || 'لا توجد تفاصيل متاحة.')}', ${productNum})" style="cursor: pointer; ${isOut ? 'opacity: 0.5;' : ''}">
                         <h3>${product.name}</h3>
                         <p class="price">${product.price} جنيه</p>
@@ -251,18 +318,27 @@
         window.addNewProduct = async function() {
             let name = document.getElementById('new-name').value.trim();
             let price = Number(document.getElementById('new-price').value);
+            let category = document.getElementById('new-category').value;
             let details = document.getElementById('new-details').value;
             let imageInput = document.getElementById('new-image');
 
             if (!name || !price || imageInput.files.length === 0) {
-                alert('من فضلك املأ اسم المنتج، السعر، واستر صوره على الأقل!');
+                alert('من فضلك املأ اسم المنتج، السعر، واختر صوره على الأقل!');
                 return;
             }
 
             let reader = new FileReader();
             reader.onload = async function(e) {
                 let imageSrc = e.target.result;
-                let newProd = { name: name, price: price, details: details, image: imageSrc, outOfStock: false, createdAt: new Date() };
+                let newProd = { 
+                    name: name, 
+                    price: price, 
+                    category: category, 
+                    details: details, 
+                    image: imageSrc, 
+                    outOfStock: false, 
+                    createdAt: new Date() 
+                };
                 
                 try {
                     const docRef = await addDoc(collection(db, "products"), newProd);
@@ -274,7 +350,7 @@
                     document.getElementById('new-price').value = '';
                     document.getElementById('new-details').value = '';
                     imageInput.value = '';
-                    alert('تمت إضافة المنتج بنجاح وحفظه في قاعدة البيانات!');
+                    alert('تمت إضافة المنتج بنجاح إلى القسم المحدد وحفظه في قاعدة البيانات!');
                 } catch (error) {
                     console.error("خطأ أثناء حفظ المنتج: ", error);
                     alert("حدث خطأ أثناء حفظ المنتج في قاعدة البيانات.");
@@ -405,6 +481,10 @@
                 querySnapshot.forEach((doc) => {
                     let prodData = doc.data();
                     prodData.id = doc.id;
+                    // إضافة تكيّف للمنتجات القديمة لو مفيش حقل category
+                    if (!prodData.category) {
+                        prodData.category = 'men';
+                    }
                     window.products.push(prodData);
                 });
                 window.renderProducts();
